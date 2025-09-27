@@ -5,19 +5,31 @@ A super simple FastAPI application that allows students to view and sign up
 for extracurricular activities at Mergington High School.
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse
 import os
 from pathlib import Path
+import json
 
 app = FastAPI(title="Mergington High School API",
-              description="API for viewing and signing up for extracurricular activities")
+              description="API for viewing and signing up for extracurricular activities and ideas")
 
-# Mount the static files directory
 current_dir = Path(__file__).parent
-app.mount("/static", StaticFiles(directory=os.path.join(Path(__file__).parent,
-          "static")), name="static")
+app.mount("/static", StaticFiles(directory=os.path.join(current_dir, "static")), name="static")
+
+# Ideas file path
+IDEAS_FILE = os.path.join(current_dir, "ideas.json")
+
+def load_ideas():
+    if not os.path.exists(IDEAS_FILE):
+        return []
+    with open(IDEAS_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+def save_ideas(ideas):
+    with open(IDEAS_FILE, "w", encoding="utf-8") as f:
+        json.dump(ideas, f, ensure_ascii=False, indent=2)
 
 # In-memory activity database
 activities = {
@@ -78,9 +90,50 @@ activities = {
 }
 
 
+
 @app.get("/")
 def root():
     return RedirectResponse(url="/static/index.html")
+
+# --- Ideas Endpoints ---
+
+@app.get("/ideas")
+def get_ideas():
+    return load_ideas()
+
+@app.post("/ideas")
+async def add_idea(request: Request):
+    data = await request.json()
+    ideas = load_ideas()
+    idea = {
+        "id": len(ideas) + 1,
+        "title": data.get("title", ""),
+        "description": data.get("description", "")
+    }
+    ideas.append(idea)
+    save_ideas(ideas)
+    return idea
+
+@app.put("/ideas/{idea_id}")
+async def update_idea(idea_id: int, request: Request):
+    data = await request.json()
+    ideas = load_ideas()
+    for idea in ideas:
+        if idea["id"] == idea_id:
+            idea["title"] = data.get("title", idea["title"])
+            idea["description"] = data.get("description", idea["description"])
+            save_ideas(ideas)
+            return idea
+    raise HTTPException(status_code=404, detail="Idea not found")
+
+@app.delete("/ideas/{idea_id}")
+def delete_idea(idea_id: int):
+    ideas = load_ideas()
+    new_ideas = [idea for idea in ideas if idea["id"] != idea_id]
+    if len(new_ideas) == len(ideas):
+        raise HTTPException(status_code=404, detail="Idea not found")
+    save_ideas(new_ideas)
+    return {"message": "Idea deleted"}
 
 
 @app.get("/activities")
